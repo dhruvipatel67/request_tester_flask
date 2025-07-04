@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>cURL Tester - Modern UI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <style>
+        body {
+            background-color: #f4f6f9;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        .container {
+            max-width: 900px;
+            margin-top: 40px;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.06);
+        }
+
+        .form-label {
+            font-weight: 500;
+        }
+
+        textarea, input {
+            font-family: 'Courier New', monospace;
+        }
+
+        #resultArea {
+            background-color: #f1f3f5;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            padding: 15px;
+            font-family: Consolas, monospace;
+            font-size: 14px;
+            color: #333;
+            max-height: 500px;
+            overflow: auto;
+            white-space: pre-wrap;
+        }
+
+        #summary {
+            font-size: 15px;
+        }
+
+        .btn {
+            min-width: 120px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h3 class="text-center mb-4">🚀 cURL Command Tester</h3>
+
+        <form id="curlForm">
+            <div class="mb-3">
+                <label for="curl_command" class="form-label">cURL Command</label>
+                <textarea name="curl_command" id="curl_command" class="form-control" rows="4" placeholder="Paste your full cURL command..." required></textarea>
+            </div>
+            <div class="mb-3">
+                <label for="expected_text" class="form-label">Expected Text</label>
+                <input type="text" name="expected_text" id="expected_text" class="form-control" placeholder="Enter expected response text" required>
+            </div>
+            <div class="mb-3">
+                <label for="iterations" class="form-label">Iterations</label>
+                <input type="number" name="iterations" id="iterations" class="form-control" value="10" min="1">
+            </div>
+
+            <div class="d-flex gap-2 mb-4">
+                <button type="submit" class="btn btn-primary">Run</button>
+                <button type="button" class="btn btn-secondary" onclick="generateSnippet()">Snippet</button>
+            </div>
+        </form>
+
+        <div id="summary" class="alert alert-light" role="alert">No execution yet.</div>
+
+        <div id="resultArea">💡 Results will appear here...</div>
+    </div>
+
+    <!-- Script -->
+    <script>
+        document.getElementById("curlForm").onsubmit = async function (e) {
+            e.preventDefault();
+
+            const form = new FormData(e.target);
+            const summary = document.getElementById("summary");
+            const resultArea = document.getElementById("resultArea");
+
+            summary.className = "alert alert-info";
+            summary.textContent = "⏳ Executing...";
+            resultArea.textContent = "";
+
+            try {
+                const res = await fetch("/", { method: "POST", body: form });
+                const data = await res.json();
+
+                if (data.error) {
+                    summary.className = "alert alert-danger";
+                    summary.textContent = "❌ " + data.error;
+                    return;
+                }
+
+                summary.className = "alert alert-success";
+                summary.textContent = `✅ Success: ${data.summary.success} | ❌ Fail: ${data.summary.fail} | 🔍 Found: ${data.summary.found} | Total: ${data.summary.total} | ⏱ Time: ${data.time}`;
+
+                resultArea.textContent = data.results.join("\n\n");
+
+            } catch (error) {
+                summary.className = "alert alert-danger";
+                summary.textContent = "❌ Unexpected Error: " + error.message;
+            }
+        };
+
+        async function generateSnippet() {
+            const form = document.getElementById("curlForm");
+            const formData = new FormData(form);
+            const res = await fetch("/snippet", { method: "POST", body: formData });
+            const html = await res.text();
+            const w = window.open("", "_blank");
+            w.document.write(html);
+            w.document.close();
+        }
+    </script>
+</body>
+</html>
