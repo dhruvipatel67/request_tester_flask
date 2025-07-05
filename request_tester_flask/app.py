@@ -1,13 +1,15 @@
-from flask import Flask, render_template, request, jsonify
+import uuid
+from flask import Flask, render_template, request, jsonify, render_template_string
 from cURL import CurlConverter
 import requests
 import threading
-from flask import render_template_string
 import time
 from concurrent.futures import ThreadPoolExecutor
+from method import run_iterations
+from progressbar import start_background_task, get_task_progress
 
 app = Flask(__name__)
-stop_flag = False
+tasks = {}
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -16,52 +18,8 @@ def index():
         curl_command = request.form["curl_command"]
         expected_text = request.form["expected_text"]
         iterations = int(request.form["iterations"])
-
-        try:
-            method, url, headers, data, json_data = CurlConverter(curl_command).convert()
-        except Exception as e:
-            return jsonify({"error": str(e)})
-
-        results = []
-        summary = {"success": 0, "fail": 0, "found": 0, "total": iterations}
-        session = requests.Session()
-
-        def send_request(i):
-            nonlocal summary
-            try:
-                if method == "POST":
-                    response = session.post(url, headers=headers, data=data, json=json_data)
-                else:
-                    response = session.get(url, headers=headers)
-
-                content = response.text
-                if expected_text.lower() in content.lower():
-                    summary["success"] += 1
-                    summary["found"] += 1
-                    idx = content.lower().find(expected_text.lower())
-                    preview = content[max(0, idx - 30): idx + len(expected_text) + 30]
-                    return f"✅ Iteration {i}: Found at index {idx}\n...{preview}..."
-                else:
-                    summary["fail"] += 1
-                    return f"❌ Iteration {i}: Not Found (Status {response.status_code})"
-
-            except Exception as e:
-                summary["fail"] += 1
-                return f"⚠️ Iteration {i}: ERROR - {str(e)}"
-
-        start = time.time()
-        with ThreadPoolExecutor(max_workers=15) as executor:
-            futures = [executor.submit(send_request, i) for i in range(1, iterations + 1)]
-            for f in futures:
-                results.append(f.result())
-        total_time = time.time() - start
-
-        return jsonify({
-            "results": results,
-            "summary": summary,
-            "time": f"{total_time:.2f} seconds"
-        })
-
+        result = run_iterations(curl_command, expected_text, iterations)
+        return jsonify(result)
     return render_template("index.html")
 
 
@@ -72,9 +30,6 @@ def snippet():
 
     try:
         method, url, headers, data, extra = CurlConverter(curl_command).convert()
-
-
-
 
     except Exception as e:
         return f"<h3>Error parsing cURL: {str(e)}</h3>"
@@ -159,6 +114,31 @@ except Exception as e:
 </body>
 </html>
 """, code=code)
+
+
+@app.route("/start_task", methods=["POST"])
+def start_task():
+    curl_command = request.form["curl_command"]
+    expected_text = request.form["expected_text"]
+    iterations = int(request.form["iterations"])
+    task_id = start_background_task(curl_command, expected_text, iterations)
+    return jsonify({"task_id": task_id})
+
+
+@app.route("/progress/<task_id>")
+def progress(task_id):
+    task = get_task_progress(task_id)
+    if not task:
+        return jsonify({"error": "Task not found"}), 404
+    resp = {
+        "done": task["done"],
+        "total": task["total"],
+        "results": task.get("results", []),
+        "summary": task.get("summary", {}),
+        "finished": task.get("finished", False),
+        "time": task.get("time", "0.00 seconds")
+    }
+    return jsonify(resp)
 
 
 if __name__ == "__main__":

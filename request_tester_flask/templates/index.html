@@ -51,6 +51,16 @@
         .btn {
             min-width: 120px;
         }
+
+        .progress {
+            height: 25px;
+        }
+
+        .progress-bar {
+            line-height: 25px;
+            color: white;
+            font-weight: 500;
+        }
     </style>
 </head>
 <body>
@@ -70,6 +80,9 @@
                 <label for="iterations" class="form-label">Iterations</label>
                 <input type="number" name="iterations" id="iterations" class="form-control" value="10" min="1">
             </div>
+            <div class="mb-3">
+                <button type="button" class="btn btn-info" id="methodBtn" disabled>Method: ?</button>
+            </div>
 
             <div class="d-flex gap-2 mb-4">
                 <button type="submit" class="btn btn-primary">Run</button>
@@ -78,6 +91,11 @@
         </form>
 
         <div id="summary" class="alert alert-light" role="alert">No execution yet.</div>
+
+        <div class="progress mb-3" style="height: 25px;">
+            <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                 role="progressbar" style="width: 0%">0%</div>
+        </div>
 
         <div id="resultArea">💡 Results will appear here...</div>
     </div>
@@ -90,30 +108,43 @@
             const form = new FormData(e.target);
             const summary = document.getElementById("summary");
             const resultArea = document.getElementById("resultArea");
+            const progressBar = document.getElementById("progressBar");
 
             summary.className = "alert alert-info";
             summary.textContent = "⏳ Executing...";
             resultArea.textContent = "";
+            progressBar.style.width = "0%";
+            progressBar.textContent = "0%";
 
-            try {
-                const res = await fetch("/", { method: "POST", body: form });
-                const data = await res.json();
-
-                if (data.error) {
-                    summary.className = "alert alert-danger";
-                    summary.textContent = "❌ " + data.error;
-                    return;
-                }
-
-                summary.className = "alert alert-success";
-                summary.textContent = `✅ Success: ${data.summary.success} | ❌ Fail: ${data.summary.fail} | 🔍 Found: ${data.summary.found} | Total: ${data.summary.total} | ⏱ Time: ${data.time}`;
-
-                resultArea.textContent = data.results.join("\n\n");
-
-            } catch (error) {
+            // Start the task and get a task_id
+            const res = await fetch("/start_task", { method: "POST", body: form });
+            const data = await res.json();
+            if (data.error) {
                 summary.className = "alert alert-danger";
-                summary.textContent = "❌ Unexpected Error: " + error.message;
+                summary.textContent = "❌ " + data.error;
+                return;
             }
+            const task_id = data.task_id;
+
+            // Poll for progress
+            let polling = true;
+            async function poll() {
+                const res = await fetch(`/progress/${task_id}`);
+                const data = await res.json();
+                // Update progress bar
+                const percent = Math.round((data.done / data.total) * 100);
+                progressBar.style.width = percent + "%";
+                progressBar.textContent = percent + "%";
+                if (data.finished) {
+                    polling = false;
+                    summary.className = "alert alert-success";
+                    summary.textContent = `✅ Success: ${data.summary.success} | ❌ Fail: ${data.summary.fail} | 🔍 Found: ${data.summary.found} | Total: ${data.summary.total} | ⏱ Time: ${data.time}`;
+                    resultArea.textContent = data.results.join("\n\n");
+                    progressBar.classList.remove("progress-bar-animated");
+                }
+                if (polling) setTimeout(poll, 500);
+            }
+            poll();
         };
 
         async function generateSnippet() {
@@ -125,6 +156,38 @@
             w.document.write(html);
             w.document.close();
         }
+
+        function detectCurlMethod(curl) {
+            // Check for -X or --request
+            const methodMatch = curl.match(/(?:-X|--request)\s+(['"])?(\w+)\1?/i);
+            if (methodMatch) return methodMatch[2].toUpperCase();
+            // Check for data flags (implies POST)
+            if (/(?:\s|^)-(?:d|data|data-raw|data-binary)\b/.test(curl) || /--data\b/.test(curl)) return "POST";
+            // Default to GET if only URL is present
+            if (/curl\s+['"]?\S+['"]?/.test(curl)) return "GET";
+            return "?";
+        }
+
+        document.getElementById("curl_command").addEventListener("input", function() {
+            const curl = this.value;
+            const method = detectCurlMethod(curl);
+            const methodBtn = document.getElementById("methodBtn");
+            methodBtn.textContent = "Method: " + method;
+
+            // Change color based on method
+            methodBtn.classList.remove("btn-info", "btn-success", "btn-warning", "btn-danger");
+            if (method === "POST") {
+                methodBtn.classList.add("btn-success");
+            } else if (method === "GET") {
+                methodBtn.classList.add("btn-info");
+            } else if (method === "PUT") {
+                methodBtn.classList.add("btn-warning");
+            } else if (method === "DELETE") {
+                methodBtn.classList.add("btn-danger");
+            } else {
+                methodBtn.classList.add("btn-secondary");
+            }
+        });
     </script>
 </body>
 </html>
